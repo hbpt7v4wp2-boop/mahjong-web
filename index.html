@@ -5,7 +5,6 @@
   <meta charset="UTF-8">
   <meta name="viewport"
         content="width=device-width, initial-scale=1.0">
-
   <title>麻雀 Web Game</title>
 
   <style>
@@ -17,16 +16,18 @@
       margin: 0;
       min-height: 100dvh;
       display: flex;
-      align-items: center;
       justify-content: center;
+      align-items: center;
       background: #173d30;
       color: white;
       font-family: sans-serif;
     }
 
     main {
-      text-align: center;
+      width: 100%;
+      max-width: 500px;
       padding: 24px;
+      text-align: center;
     }
 
     button {
@@ -36,12 +37,18 @@
       background: white;
       color: #173d30;
       font-size: 16px;
+      font-weight: bold;
       cursor: pointer;
     }
 
-    #result {
-      min-height: 24px;
-      margin-top: 20px;
+    button:disabled {
+      opacity: 0.5;
+    }
+
+    #status {
+      margin-top: 24px;
+      line-height: 1.8;
+      overflow-wrap: anywhere;
     }
   </style>
 </head>
@@ -49,25 +56,100 @@
 <body>
   <main>
     <h1>麻雀 Web Game</h1>
-    <p>動作確認 Version 0.1</p>
+    <p>通信テスト Version 0.2</p>
 
     <button id="testButton">
-      動作テスト
+      通信テスト開始
     </button>
 
-    <p id="result"></p>
+    <p id="status">
+      ボタンを押してください
+    </p>
   </main>
 
   <script>
+    const SERVER_URL =
+      "wss://mahjong-realtime-test.hbpt7v4wp2.workers.dev";
+
     const button =
       document.getElementById("testButton");
 
-    const result =
-      document.getElementById("result");
+    const status =
+      document.getElementById("status");
 
     button.addEventListener("click", () => {
-      result.textContent =
-        "JavaScriptが正常に動作しています！";
+      button.disabled = true;
+      status.style.color = "white";
+      status.textContent = "サーバーに接続中...";
+
+      let socket;
+      let finished = false;
+      let timeoutId;
+
+      function finish(success, message) {
+        if (finished) return;
+
+        finished = true;
+        clearTimeout(timeoutId);
+
+        status.textContent = message;
+        status.style.color =
+          success ? "#90f0b1" : "#ffb0b0";
+
+        button.disabled = false;
+
+        if (socket) {
+          socket.close();
+        }
+      }
+
+      try {
+        socket = new WebSocket(SERVER_URL);
+      } catch (error) {
+        finish(false, "接続を開始できませんでした");
+        return;
+      }
+
+      timeoutId = setTimeout(() => {
+        finish(false, "通信がタイムアウトしました");
+      }, 8000);
+
+      socket.addEventListener("open", () => {
+        status.textContent =
+          "接続成功！メッセージを送信中...";
+
+        socket.send("mahjong-test-001");
+      });
+
+      socket.addEventListener("message", (event) => {
+        if (event.data === "Echo: mahjong-test-001") {
+          finish(
+            true,
+            "通信成功！サーバーから返信を受信しました。"
+          );
+        } else {
+          finish(
+            false,
+            "想定外の返信: " + String(event.data)
+          );
+        }
+      });
+
+      socket.addEventListener("error", () => {
+        finish(
+          false,
+          "通信エラーが発生しました"
+        );
+      });
+
+      socket.addEventListener("close", () => {
+        if (!finished) {
+          finish(
+            false,
+            "通信が途中で切断されました"
+          );
+        }
+      });
     });
   </script>
 </body>
