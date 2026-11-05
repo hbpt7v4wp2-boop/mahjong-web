@@ -1,6 +1,13 @@
 
 import { DurableObject } from "cloudflare:workers";
 
+import {
+  createTestGame,
+  applyDiscard,
+  gameView
+} from "./game.js";
+
+
 const send = (ws, data) => {
   try {
     ws.send(JSON.stringify(data));
@@ -100,6 +107,15 @@ export class MahjongRoom extends DurableObject {
       });
     });
   }
+  
+  
+  broadcastGame(game) {
+    for (const { ws, data } of this.members()) {
+      const view = gameView(game, data.id);
+      if (view) send(ws, view);
+    }
+  }
+
 
   async fetch() {
     if (this.ctx.getWebSockets().length >= 6) {
@@ -119,7 +135,8 @@ export class MahjongRoom extends DurableObject {
     });
   }
 
-  webSocketMessage(ws, message) {
+async webSocketMessage(ws, message) {
+
     if (
       typeof message !== "string" ||
       message.length > 700
@@ -137,6 +154,11 @@ export class MahjongRoom extends DurableObject {
     }
 
     const current = ws.deserializeAttachment();
+
+
+    const game =
+      await this.ctx.storage.get("testGame");
+
 
     if (!current) {
       if (packet.type !== "join") return;
@@ -162,6 +184,20 @@ export class MahjongRoom extends DurableObject {
         ws.close(1008, "Invalid join");
         return;
       }
+      
+      
+      if (
+        game?.phase === "playing" &&
+        !game.players.some(p => p.id === id)
+      ) {
+        send(ws, {
+          type: "notice",
+          text: "対局中のため新規参加できません"
+        });
+        ws.close(1008, "Game in progress");
+        return;
+      }
+
 
       const members = this.members();
       const previous =
@@ -215,9 +251,41 @@ export class MahjongRoom extends DurableObject {
 
       });
 
+      
       this.broadcastState();
+      if (game) this.broadcastGame(game);
+      return;
+
+    }
+
+
+    if (packet.type === "discard") {
+      if (
+        game &&
+        typeof packet.tileId === "string" &&
+        Number.isSafeInteger(packet.actionId) &&
+        applyDiscard(
+          game,
+          current.id,
+          packet.tileId,
+          packet.actionId
+        )
+      ) {
+        await this.ctx.storage.put(
+          "testGame", game
+        );
+        this.broadcastGame(game);
+      }
       return;
     }
+
+    if (
+      game?.phase === "playing" &&
+      packet.type !== "chat"
+    ) {
+      return;
+    }
+
 
     if (
       packet.type === "ready" &&
@@ -282,30 +350,46 @@ export class MahjongRoom extends DurableObject {
     }
 
 
+    
     if (packet.type === "start") {
       const members = this.members();
 
       if (members[0]?.ws !== ws) return;
-      
-      const playerCount =
-        members.length +
-        (members[0]?.data.comEnabled ? 1 : 0);
+
+      const hasCom =
+        !!members[0]?.data.comEnabled;
 
       if (
-        playerCount !== 3 ||
+        members.length + (hasCom ? 1 : 0) !== 3 ||
         members.some(m => !m.data.ready)
       ) return;
 
+      if (game?.phase === "playing") return;
 
-      for (const member of members) {
-        send(member.ws, {
-          type: "notice",
-          text:
-            "3人全員が準備完了しました。" +
-            "対局処理は次の工程で実装します。"
+      const players = members.map(m => ({
+        id: m.data.id,
+        name: m.data.name,
+        com: false
+      }));
+
+      if (hasCom) {
+        players.push({
+          id: "COM",
+          name: "COM（テスト）",
+          com: true
         });
       }
+
+      const nextGame = createTestGame(players);
+
+      await this.ctx.storage.put(
+        "testGame", nextGame
+      );
+
+      this.broadcastGame(nextGame);
+      return;
     }
+
   }
 
   webSocketClose() {

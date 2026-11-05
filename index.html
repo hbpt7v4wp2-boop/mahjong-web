@@ -130,13 +130,50 @@
       .row { flex-wrap: wrap; }
       .row input { flex-basis: 100%; }
     }
+    
+    #handArea {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      margin: 16px 0;
+    }
+
+    .tile {
+      min-width: 38px;
+      min-height: 54px;
+      padding: 5px;
+      background: #fff7e7;
+      color: #143428;
+      border: 2px solid #d7d0bd;
+      border-radius: 5px;
+      font-size: 14px;
+    }
+
+    .tile.red {
+      color: #c62828;
+    }
+
+    .tile.selected {
+      transform: translateY(-7px);
+      border-color: #e6bd4c;
+    }
+
+    .discardRow {
+      background: #133e2f;
+      padding: 10px;
+      border-radius: 7px;
+      margin: 8px 0;
+      overflow-wrap: anywhere;
+      line-height: 1.8;
+    }
+
   </style>
 </head>
 
 <body>
 <main>
   <h1>麻雀 Web Game</h1>
-  <p class="subtitle">待機ルーム Version 0.5</p>
+  <p class="subtitle">待機ルーム Version 0.6</p>
 
 
   <section>
@@ -201,6 +238,22 @@
     </p>
   </section>
 
+
+  <section id="gameArea" hidden>
+    <h2>東1局・対局テスト</h2>
+
+    <p id="gameInfo"></p>
+
+    <h3>各プレイヤーの捨て牌</h3>
+    <div id="discardArea"></div>
+
+    <h3>あなたの手牌</h3>
+    <div id="handArea"></div>
+
+    <p id="gameHint"></p>
+  </section>
+
+
   <section>
     <h2>チャット</h2>
     <div id="log" aria-live="polite"></div>
@@ -252,6 +305,129 @@
     }
   };
 
+
+  let gameState = null;
+  let selectedTileId = null;
+  let discardPending = false;
+
+  function tileText(tile) {
+    const honors = {
+      E: "東", S: "南", W: "西",
+      N: "北", H: "白", F: "發", C: "中"
+    };
+
+    if (honors[tile.code]) {
+      return honors[tile.code];
+    }
+
+    const suit = {
+      m: "萬", p: "筒", s: "索"
+    }[tile.code[1]];
+
+    return (
+      (tile.red ? "赤" : "") +
+      tile.code[0] +
+      suit
+    );
+  }
+
+  function tileSort(tile) {
+    if (tile.code.length === 2) {
+      const base = {
+        m: 0, p: 10, s: 20
+      }[tile.code[1]];
+
+      return base + Number(tile.code[0]);
+    }
+
+    return 40 + [
+      "E", "S", "W", "N", "H", "F", "C"
+    ].indexOf(tile.code);
+  }
+
+  function renderGame() {
+    const g = gameState;
+    $("gameArea").hidden = !g;
+
+    if (!g) return;
+
+    const playing = g.phase === "playing";
+    const myTurn =
+      playing &&
+      g.mySeat === g.turnSeat &&
+      !discardPending;
+
+    $("gameInfo").textContent = playing
+      ? `残り山牌：${g.remaining}枚 / ` +
+        `${g.turnSeat}番席の手番`
+      : "山牌がなくなりました。テスト対局終了。";
+
+    $("discardArea").replaceChildren();
+
+    g.players.forEach((player, index) => {
+      const row = document.createElement("div");
+      row.className = "discardRow";
+
+      const tiles = g.discards[index]
+        .map(tileText).join(" ");
+
+      row.textContent =
+        `${index + 1}番席 ${player.name}：` +
+        (tiles || "捨て牌なし");
+
+      $("discardArea").append(row);
+    });
+
+    $("handArea").replaceChildren();
+
+    const sorted = [...g.hand].sort(
+      (a, b) => tileSort(a) - tileSort(b)
+    );
+
+    for (const tile of sorted) {
+      const button =
+        document.createElement("button");
+
+      button.type = "button";
+      button.className =
+        "tile" +
+        (tile.red ? " red" : "") +
+        (selectedTileId === tile.id
+          ? " selected" : "");
+
+      button.textContent = tileText(tile);
+      button.disabled = !myTurn;
+
+      button.onclick = () => {
+        if (selectedTileId === tile.id) {
+          discardPending = true;
+          selectedTileId = null;
+
+          send({
+            type: "discard",
+            tileId: tile.id,
+            actionId: g.actionId
+          });
+        } else {
+          selectedTileId = tile.id;
+        }
+
+        renderGame();
+      };
+
+      $("handArea").append(button);
+    }
+
+    $("gameHint").textContent = !playing
+      ? "全員が揃っていれば再び開始テストができます。"
+      : myTurn
+        ? selectedTileId
+          ? "同じ牌をもう一度押すと打牌します。"
+          : "あなたの手番です。牌を選択してください。"
+        : "相手の操作を待っています。";
+  }
+
+
   function refreshUI() {
     const active = connecting || joined;
 
@@ -272,7 +448,10 @@
       p => p.seat === roomState.selfSeat
     );
 
-    $("ready").disabled = !joined;
+
+    $("ready").disabled =
+      !joined || gameState?.phase === "playing";
+
     $("ready").textContent = me?.ready
       ? "準備を取り消す"
       : "準備完了にする";
@@ -286,10 +465,13 @@
       p => !p.com
     ).length;
 
+    
     $("com").disabled =
       !joined ||
       !me?.host ||
+      gameState?.phase === "playing" ||
       (!hasCom && humanCount !== 2);
+
 
     $("com").textContent =
       hasCom ? "COMを外す" : "COMを追加";
@@ -301,7 +483,10 @@
       roomState.players.length === 3 &&
       roomState.players.every(p => p.ready);
 
-    $("start").disabled = !canStart;
+
+    $("start").disabled =
+      !canStart || gameState?.phase === "playing";
+
 
     $("count").textContent =
       roomState.players.length + "/3";
@@ -464,6 +649,17 @@
         status("接続成功！");
         refreshUI();
 
+
+      } else if (packet.type === "game") {
+        gameState = packet;
+        selectedTileId = null;
+        discardPending = false;
+
+        renderGame();
+        refreshUI();
+
+
+
       } else if (packet.type === "chat") {
         log(packet.name + "：" + packet.text);
 
@@ -488,11 +684,18 @@
         players: []
       };
 
+      
+      gameState = null;
+      selectedTileId = null;
+      discardPending = false;
+
+      renderGame();
       refreshUI();
 
       status(
         "切断されました（必要なら再参加できます）"
       );
+
     };
   };
 
