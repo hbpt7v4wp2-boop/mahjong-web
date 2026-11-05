@@ -1,68 +1,261 @@
 
 import { DurableObject } from "cloudflare:workers";
 
+const send = (ws, data) => {
+  try {
+    ws.send(JSON.stringify(data));
+  } catch (_) {}
+};
+
 export default {
   async fetch(request, env) {
     const path = new URL(request.url).pathname;
-    const isWebSocket =
-      request.headers.get("Upgrade")?.toLowerCase() === "websocket";
+    const websocket =
+      request.headers.get("Upgrade")?.toLowerCase()
+      === "websocket";
 
-    if (!isWebSocket) {
+    if (!websocket) {
       return new Response(
-        path === "/" ? "Mahjong WebSocket server is running!" : "WebSocket required",
+        path === "/"
+          ? "Mahjong WebSocket server is running!"
+          : "WebSocket required",
         { status: path === "/" ? 200 : 426 }
       );
     }
 
-    // Keep the existing Version 0.2 echo test working.
     if (path === "/") {
-      const [client, server] = Object.values(new WebSocketPair());
+      const [client, server] =
+        Object.values(new WebSocketPair());
+
       server.accept();
-      server.addEventListener("message", (event) => {
-        if (typeof event.data === "string" && event.data.length <= 1000) {
+      server.addEventListener("message", event => {
+        if (
+          typeof event.data === "string" &&
+          event.data.length <= 1000
+        ) {
           server.send("Echo: " + event.data);
         }
       });
-      return new Response(null, { status: 101, webSocket: client });
+
+      return new Response(null, {
+        status: 101,
+        webSocket: client
+      });
     }
 
-    const match = path.match(/^\/room\/([A-Z0-9]{6})$/);
-    if (!match) return new Response("Invalid room code", { status: 400 });
+    const match =
+      /^\/room\/([A-Z0-9]{6})$/.exec(path);
+
+    if (!match) {
+      return new Response("Invalid room code", {
+        status: 400
+      });
+    }
+
     return env.ROOM.getByName(match[1]).fetch(request);
   }
 };
 
 export class MahjongRoom extends DurableObject {
-  async fetch(request) {
-    if (this.ctx.getWebSockets().length >= 3) {
-      return new Response("Room full", { status: 403 });
+  members() {
+    return this.ctx.getWebSockets()
+      .filter(ws => ws.readyState === WebSocket.OPEN)
+      .map(ws => ({
+        ws,
+        data: ws.deserializeAttachment()
+      }))
+      .filter(item => item.data?.id)
+      .sort((a, b) =>
+        a.data.joinedAt - b.data.joinedAt
+      );
+  }
+
+  broadcastState() {
+    const members = this.members();
+
+    const players = members.map(({ data }, index) => ({
+      seat: index + 1,
+      name: data.name,
+      ready: data.ready,
+      host: index === 0
+    }));
+
+    members.forEach(({ ws }, index) => {
+      send(ws, {
+        type: "state",
+        selfSeat: index + 1,
+        players
+      });
+    });
+  }
+
+  async fetch() {
+    if (this.ctx.getWebSockets().length >= 6) {
+      return new Response("Too many connections", {
+        status: 429
+      });
     }
 
-    const [client, server] = Object.values(new WebSocketPair());
+    const [client, server] =
+      Object.values(new WebSocketPair());
+
     this.ctx.acceptWebSocket(server);
-    server.send(JSON.stringify({ type: "joined" }));
-    return new Response(null, { status: 101, webSocket: client });
+
+    return new Response(null, {
+      status: 101,
+      webSocket: client
+    });
   }
 
   webSocketMessage(ws, message) {
-    if (typeof message !== "string" || message.length > 512) return;
+    if (
+      typeof message !== "string" ||
+      message.length > 700
+    ) return;
+
     let packet;
     try {
       packet = JSON.parse(message);
     } catch {
       return;
     }
-    if (packet?.type !== "chat" || typeof packet.text !== "string") return;
-    const text = packet.text.trim();
-    if (!text || text.length > 100) return;
 
-    const outgoing = JSON.stringify({ type: "chat", text });
-    for (const peer of this.ctx.getWebSockets()) {
-      try { peer.send(outgoing); } catch {}
+    if (!packet || typeof packet !== "object") {
+      return;
+    }
+
+    const current = ws.deserializeAttachment();
+
+    if (!current) {
+      if (packet.type !== "join") return;
+
+      const name =
+        typeof packet.name === "string"
+          ? packet.name
+              .replace(/[\u0000-\u001f\u007f]/g, "")
+              .trim()
+              .slice(0, 12)
+          : "";
+
+      const id =
+        typeof packet.id === "string"
+          ? packet.id
+          : "";
+
+      if (!name || !/^[0-9a-f-]{36}$/i.test(id)) {
+        send(ws, {
+          type: "notice",
+          text: "名前または参加情報が不正です"
+        });
+        ws.close(1008, "Invalid join");
+        return;
+      }
+
+      const members = this.members();
+      const previous =
+        members.find(member => member.data.id === id);
+
+      if (!previous && members.length >= 3) {
+        send(ws, {
+          type: "notice",
+          text: "満席です"
+        });
+        ws.close(1008, "Room full");
+        return;
+      }
+
+      if (previous) {
+        previous.ws.serializeAttachment(null);
+        previous.ws.close(
+          1000,
+          "Replaced by another tab"
+        );
+      }
+
+      ws.serializeAttachment({
+        id,
+        name,
+        ready: previous?.data.ready ?? false,
+        joinedAt:
+          previous?.data.joinedAt ??
+          Math.max(
+            Date.now() * 1000,
+            0,
+            ...members.map(
+              member => member.data.joinedAt + 1
+            )
+          ),
+        lastChat: 0
+      });
+
+      this.broadcastState();
+      return;
+    }
+
+    if (
+      packet.type === "ready" &&
+      typeof packet.ready === "boolean"
+    ) {
+      ws.serializeAttachment({
+        ...current,
+        ready: packet.ready
+      });
+      this.broadcastState();
+    }
+
+    if (
+      packet.type === "chat" &&
+      typeof packet.text === "string"
+    ) {
+      const text = packet.text
+        .replace(/[\u0000-\u001f\u007f]/g, "")
+        .trim()
+        .slice(0, 100);
+
+      if (
+        !text ||
+        Date.now() - current.lastChat < 750
+      ) return;
+
+      ws.serializeAttachment({
+        ...current,
+        lastChat: Date.now()
+      });
+
+      for (const peer of this.members()) {
+        send(peer.ws, {
+          type: "chat",
+          name: current.name,
+          text
+        });
+      }
+    }
+
+    if (packet.type === "start") {
+      const members = this.members();
+
+      if (members[0]?.ws !== ws) return;
+      if (
+        members.length !== 3 ||
+        members.some(m => !m.data.ready)
+      ) return;
+
+      for (const member of members) {
+        send(member.ws, {
+          type: "notice",
+          text:
+            "3人全員が準備完了しました。" +
+            "対局処理は次の工程で実装します。"
+        });
+      }
     }
   }
 
-  webSocketClose(ws, code, reason) {
-    try { ws.close(code, reason); } catch {}
+  webSocketClose() {
+    this.broadcastState();
+  }
+
+  webSocketError() {
+    this.broadcastState();
   }
 }

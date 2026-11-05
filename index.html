@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport"
-        content="width=device-width, initial-scale=1.0">
+        content="width=device-width, initial-scale=1">
   <title>麻雀 Web Game</title>
 
   <style>
@@ -13,36 +13,38 @@
     body {
       margin: 0;
       min-height: 100dvh;
+      padding: 16px;
+      font-family: system-ui, sans-serif;
       background: #173d30;
       color: white;
-      font-family: sans-serif;
-      padding: 20px;
     }
 
     main {
-      max-width: 600px;
+      max-width: 680px;
       margin: auto;
     }
 
-    h1, .subtitle { text-align: center; }
+    h1, .subtitle {
+      text-align: center;
+    }
 
     section {
-      background: #245441;
+      margin: 16px 0;
       padding: 18px;
+      background: #245441;
       border-radius: 12px;
-      margin-top: 20px;
     }
 
     input, button {
-      font-size: 16px;
+      font: inherit;
       padding: 12px;
+      border: 0;
       border-radius: 8px;
-      border: none;
     }
 
     input {
-      width: 100%;
       min-width: 0;
+      width: 100%;
     }
 
     button {
@@ -53,266 +55,457 @@
     }
 
     button:disabled {
-      opacity: 0.5;
+      opacity: .45;
+      cursor: default;
     }
 
     .row {
       display: flex;
       gap: 8px;
-      margin-top: 10px;
+      align-items: center;
+      margin-top: 9px;
     }
 
     .row input { flex: 1; }
-    .row button { flex-shrink: 0; }
+    .row button { flex: none; }
+
+    label {
+      display: block;
+      margin-top: 12px;
+    }
 
     #roomCode {
       text-transform: uppercase;
       letter-spacing: 2px;
     }
 
-    #status { font-weight: bold; }
+    #roster {
+      display: grid;
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .seat {
+      background: #133e2f;
+      padding: 12px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .seat small {
+      color: #c3e3d2;
+    }
+
+    #status {
+      font-weight: bold;
+    }
 
     #log {
-      height: 180px;
+      min-height: 80px;
+      max-height: 160px;
       overflow-y: auto;
       background: #102c22;
-      border-radius: 8px;
       padding: 12px;
+      border-radius: 8px;
       overflow-wrap: anywhere;
     }
 
-    .message {
-      margin-bottom: 10px;
+    #log div {
+      margin: 4px 0;
     }
 
-    a { color: #b9f5d1; }
+    #invite {
+      overflow-wrap: anywhere;
+      color: #b9f5d1;
+    }
+
+    [hidden] {
+      display: none !important;
+    }
+
+    @media(max-width: 410px) {
+      .row { flex-wrap: wrap; }
+      .row input { flex-basis: 100%; }
+    }
   </style>
 </head>
 
 <body>
-  <main>
-    <h1>麻雀 Web Game</h1>
-    <p class="subtitle">
-      通信テスト Version 0.3
+<main>
+  <h1>麻雀 Web Game</h1>
+  <p class="subtitle">待機ルーム Version 0.4</p>
+
+  <section>
+    <h2>ルームに参加</h2>
+
+    <label for="nickname">
+      プレイヤー名（12文字まで）
+    </label>
+    <input
+      id="nickname"
+      maxlength="12"
+      placeholder="名前を入力"
+    >
+
+    <label for="roomCode">
+      部屋コード（6文字）
+    </label>
+    <div class="row">
+      <input
+        id="roomCode"
+        maxlength="6"
+        placeholder="ABC123"
+        autocapitalize="characters"
+      >
+      <button id="makeCode">自動作成</button>
+    </div>
+
+    <div class="row">
+      <button id="connect">参加する</button>
+      <button id="disconnect" disabled>退出</button>
+    </div>
+
+    <p id="inviteWrap" hidden>
+      招待リンク：<a id="invite"></a>
     </p>
+    <p id="status">未接続</p>
+  </section>
 
-    <section>
-      <h2>ルーム接続</h2>
+  <section>
+    <h2>
+      待機ルーム <span id="count">0/3</span>
+    </h2>
 
-      <label for="roomCode">部屋コード</label>
+    <div id="roster"></div>
 
-      <div class="row">
-        <input
-          id="roomCode"
-          maxlength="6"
-          placeholder="ABC123"
-          autocapitalize="characters"
-        >
-        <button id="makeCode">
-          自動作成
-        </button>
-      </div>
+    <div class="row">
+      <button id="ready" disabled>
+        準備完了にする
+      </button>
+      <button id="start" disabled>
+        対局開始テスト
+      </button>
+    </div>
 
-      <div class="row">
-        <button id="connect">接続する</button>
-        <button id="disconnect" disabled>
-          切断
-        </button>
-      </div>
+    <p id="hint">
+      3人が揃うまで対局を開始できません。
+    </p>
+  </section>
 
-      <p id="inviteWrap" hidden>
-        招待用：
-        <a id="invite">ルームリンク</a>
-      </p>
+  <section>
+    <h2>チャット</h2>
+    <div id="log" aria-live="polite"></div>
 
-      <p id="status">未接続</p>
-    </section>
+    <form id="sendForm" class="row">
+      <input
+        id="message"
+        maxlength="100"
+        placeholder="メッセージを入力"
+        disabled
+      >
+      <button id="send" type="submit" disabled>
+        送信
+      </button>
+    </form>
+  </section>
+</main>
 
-    <section>
-      <h2>メッセージテスト</h2>
+<script>
+  const SERVER =
+    "wss://mahjong-realtime-test.hbpt7v4wp2.workers.dev";
 
-      <div id="log" aria-live="polite"></div>
+  const $ = id => document.getElementById(id);
+  let socket = null;
+  let connecting = false;
+  let joined = false;
+  let roomState = {
+    selfSeat: null,
+    players: []
+  };
 
-      <form id="sendForm" class="row">
-        <input
-          id="message"
-          maxlength="100"
-          placeholder="メッセージを入力"
-          disabled
-        >
-        <button id="send" type="submit" disabled>
-          送信
-        </button>
-      </form>
-    </section>
-  </main>
+  const status = message => {
+    $("status").textContent = message;
+  };
 
-  <script>
-    const SERVER =
-      "wss://mahjong-realtime-test.hbpt7v4wp2.workers.dev";
+  function log(message) {
+    const div = document.createElement("div");
+    div.textContent = message;
+    $("log").appendChild(div);
+    $("log").scrollTop = $("log").scrollHeight;
+  }
 
-    const $ = id => document.getElementById(id);
-    let socket = null;
+  const roomCode = () =>
+    $("roomCode").value.trim().toUpperCase();
 
-    function setStatus(text) {
-      $("status").textContent = text;
+  const send = payload => {
+    if (socket?.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify(payload));
+    }
+  };
+
+  function refreshUI() {
+    const active = connecting || joined;
+
+    for (const id of [
+      "nickname",
+      "roomCode",
+      "makeCode",
+      "connect"
+    ]) {
+      $(id).disabled = active;
     }
 
-    function addLog(text) {
+    $("disconnect").disabled = !active;
+    $("message").disabled = !joined;
+    $("send").disabled = !joined;
+
+    const me = roomState.players.find(
+      p => p.seat === roomState.selfSeat
+    );
+
+    $("ready").disabled = !joined;
+    $("ready").textContent = me?.ready
+      ? "準備を取り消す"
+      : "準備完了にする";
+
+    const canStart =
+      joined &&
+      me?.host &&
+      roomState.players.length === 3 &&
+      roomState.players.every(p => p.ready);
+
+    $("start").disabled = !canStart;
+
+    $("count").textContent =
+      roomState.players.length + "/3";
+
+    $("hint").textContent = canStart
+      ? "開始条件を満たしています（まだ対局は始まりません）。"
+      : "3人全員が参加して準備完了すると、部屋主が開始できます。";
+
+    $("roster").replaceChildren();
+
+    for (let seat = 1; seat <= 3; seat++) {
+      const player = roomState.players.find(
+        p => p.seat === seat
+      );
+
       const item = document.createElement("div");
-      item.className = "message";
-      item.textContent = text;
-      $("log").appendChild(item);
-      $("log").scrollTop = $("log").scrollHeight;
+      item.className = "seat";
+
+      const left = document.createElement("span");
+      left.textContent = player
+        ? `${seat}番席：${player.name}` +
+          `${player.host ? " 👑部屋主" : ""}` +
+          `${roomState.selfSeat === seat ? "（あなた）" : ""}`
+        : `${seat}番席：空席`;
+
+      const right = document.createElement("small");
+      right.textContent = player
+        ? player.ready ? "準備完了" : "準備中"
+        : "参加待ち";
+
+      item.append(left, right);
+      $("roster").append(item);
     }
+  }
 
-    function setConnected(connected) {
-      $("roomCode").disabled = connected;
-      $("makeCode").disabled = connected;
-      $("connect").disabled = connected;
-      $("disconnect").disabled = !connected;
-      $("message").disabled = !connected;
-      $("send").disabled = !connected;
-    }
+  function updateInvite() {
+    const code = roomCode();
+    $("inviteWrap").hidden =
+      !/^[A-Z0-9]{6}$/.test(code);
 
-    function getRoomCode() {
-      return $("roomCode").value
-        .trim()
-        .toUpperCase();
-    }
-
-    function updateInvite() {
-      const code = getRoomCode();
-
-      if (!/^[A-Z0-9]{6}$/.test(code)) {
-        $("inviteWrap").hidden = true;
-        return;
-      }
-
+    if (!$("inviteWrap").hidden) {
       const url = new URL(location.href);
+      url.search = "";
       url.searchParams.set("room", code);
 
       $("invite").href = url.href;
       $("invite").textContent = url.href;
-      $("inviteWrap").hidden = false;
     }
+  }
 
-    $("makeCode").addEventListener("click", () => {
-      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-      const bytes = new Uint8Array(6);
+  $("makeCode").onclick = () => {
+    const chars =
+      "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-      crypto.getRandomValues(bytes);
-
-      $("roomCode").value =
-        Array.from(bytes, value =>
-          chars[value % chars.length]
-        ).join("");
-
-      updateInvite();
-    });
-
-    $("roomCode").addEventListener(
-      "input", updateInvite
+    const bytes = crypto.getRandomValues(
+      new Uint8Array(6)
     );
 
-    const preset =
-      new URLSearchParams(location.search)
-        .get("room");
-
-    if (preset) {
-      $("roomCode").value =
-        preset.toUpperCase().slice(0, 6);
-    }
+    $("roomCode").value = [...bytes]
+      .map(v => chars[v % chars.length])
+      .join("");
 
     updateInvite();
+  };
 
-    $("connect").addEventListener("click", () => {
-      const code = getRoomCode();
+  $("roomCode").oninput = updateInvite;
 
-      if (!/^[A-Z0-9]{6}$/.test(code)) {
-        setStatus("6文字の部屋コードを入力してください");
-        return;
-      }
+  $("roomCode").value =
+    (
+      new URLSearchParams(location.search)
+        .get("room") || ""
+    ).toUpperCase().slice(0, 6);
 
-      setStatus("接続中...");
-      setConnected(true);
-      $("log").textContent = "";
+  try {
+    $("nickname").value =
+      localStorage.getItem("mahjong.nickname") || "";
+  } catch {}
 
-      let opened = false;
+  updateInvite();
+  refreshUI();
+
+  $("connect").onclick = () => {
+    const code = roomCode();
+    const name = $("nickname").value.trim();
+
+    if (
+      !/^[A-Z0-9]{6}$/.test(code) ||
+      !name ||
+      name.length > 12
+    ) {
+      status(
+        "名前と6文字の部屋コードを確認してください"
+      );
+      return;
+    }
+
+    let id;
+
+    try {
+      id = localStorage.getItem(
+        "mahjong.player." + code
+      );
+    } catch {}
+
+    if (
+      !id ||
+      !/^[0-9a-f-]{36}$/i.test(id)
+    ) {
+      id = crypto.randomUUID();
 
       try {
-        socket = new WebSocket(
-          SERVER + "/room/" + code
+        localStorage.setItem(
+          "mahjong.player." + code,
+          id
         );
+      } catch {}
+    }
+
+    try {
+      localStorage.setItem(
+        "mahjong.nickname",
+        name
+      );
+    } catch {}
+
+    connecting = true;
+    status("接続中...");
+    refreshUI();
+
+    try {
+      socket = new WebSocket(
+        SERVER + "/room/" + code
+      );
+    } catch {
+      connecting = false;
+      refreshUI();
+      status("接続を開始できませんでした");
+      return;
+    }
+
+    const current = socket;
+
+    current.onopen = () => {
+      send({ type: "join", id, name });
+    };
+
+    current.onmessage = event => {
+      let packet;
+
+      try {
+        packet = JSON.parse(event.data);
       } catch {
-        setConnected(false);
-        setStatus("接続を開始できませんでした");
         return;
       }
 
-      socket.addEventListener("open", () => {
-        opened = true;
-        setStatus("接続成功！");
-        addLog("ルーム " + code + " に接続しました");
-      });
+      if (packet.type === "state") {
+        connecting = false;
+        joined = true;
+        roomState = packet;
+        status("接続成功！");
+        refreshUI();
 
-      socket.addEventListener("message", event => {
-        let data;
+      } else if (packet.type === "chat") {
+        log(packet.name + "：" + packet.text);
 
-        try {
-          data = JSON.parse(event.data);
-        } catch {
-          return;
-        }
-
-        if (data.type === "joined") {
-          addLog("サーバーへの参加が完了しました");
-        }
-
-        if (
-          data.type === "chat" &&
-          typeof data.text === "string"
-        ) {
-          addLog(data.text);
-        }
-      });
-
-      socket.addEventListener("close", () => {
-        setConnected(false);
-        setStatus(
-          opened
-            ? "接続が切断されました"
-            : "接続失敗（通信・満員・設定を確認）"
-        );
-        socket = null;
-      });
-
-      socket.addEventListener("error", () => {
-        setStatus("WebSocket通信エラー");
-      });
-    });
-
-    $("disconnect").addEventListener("click", () => {
-      if (socket) socket.close();
-    });
-
-    $("sendForm").addEventListener("submit", event => {
-      event.preventDefault();
-
-      const text = $("message").value.trim();
-
-      if (!text || !socket ||
-          socket.readyState !== WebSocket.OPEN) {
-        return;
+      } else if (packet.type === "notice") {
+        log("お知らせ：" + packet.text);
+        status(packet.text);
       }
+    };
 
-      socket.send(JSON.stringify({
+    current.onerror = () => {
+      status("通信エラーが発生しました");
+    };
+
+    current.onclose = () => {
+      if (socket !== current) return;
+
+      connecting = false;
+      joined = false;
+      socket = null;
+      roomState = {
+        selfSeat: null,
+        players: []
+      };
+
+      refreshUI();
+
+      status(
+        "切断されました（必要なら再参加できます）"
+      );
+    };
+  };
+
+  $("disconnect").onclick = () => {
+    socket?.close(1000, "Leave");
+  };
+
+  $("ready").onclick = () => {
+    const me = roomState.players.find(
+      p => p.seat === roomState.selfSeat
+    );
+
+    if (me) {
+      send({
+        type: "ready",
+        ready: !me.ready
+      });
+    }
+  };
+
+  $("start").onclick = () => {
+    send({ type: "start" });
+  };
+
+  $("sendForm").onsubmit = event => {
+    event.preventDefault();
+
+    const text = $("message").value.trim();
+
+    if (text && joined) {
+      send({
         type: "chat",
-        text: text
-      }));
-
+        text
+      });
       $("message").value = "";
-    });
-  </script>
+    }
+  };
+</script>
 </body>
 </html>
