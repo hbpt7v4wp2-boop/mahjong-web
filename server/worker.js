@@ -79,6 +79,18 @@ export class MahjongRoom extends DurableObject {
       ready: data.ready,
       host: index === 0
     }));
+    
+    
+    if (members[0]?.data.comEnabled) {
+      players.push({
+        seat: 3,
+        name: "COM（テスト）",
+        ready: true,
+        host: false,
+        com: true
+      });
+    }
+
 
     members.forEach(({ ws }, index) => {
       send(ws, {
@@ -155,7 +167,18 @@ export class MahjongRoom extends DurableObject {
       const previous =
         members.find(member => member.data.id === id);
 
-      if (!previous && members.length >= 3) {
+      
+      
+      if (
+        !previous &&
+        (
+          members.length >= 3 ||
+          (
+            members.length >= 2 &&
+            members[0]?.data.comEnabled
+          )
+        )
+      ) {
         send(ws, {
           type: "notice",
           text: "満席です"
@@ -165,6 +188,7 @@ export class MahjongRoom extends DurableObject {
       }
 
       if (previous) {
+
         previous.ws.serializeAttachment(null);
         previous.ws.close(
           1000,
@@ -185,7 +209,10 @@ export class MahjongRoom extends DurableObject {
               member => member.data.joinedAt + 1
             )
           ),
-        lastChat: 0
+        
+        lastChat: 0,
+        comEnabled: previous?.data.comEnabled ?? false
+
       });
 
       this.broadcastState();
@@ -231,14 +258,44 @@ export class MahjongRoom extends DurableObject {
       }
     }
 
+
+    if (
+      packet.type === "com" &&
+      typeof packet.enabled === "boolean"
+    ) {
+      const members = this.members();
+
+      if (members[0]?.ws !== ws) return;
+
+      if (
+        packet.enabled &&
+        members.length !== 2
+      ) return;
+
+      ws.serializeAttachment({
+        ...current,
+        comEnabled: packet.enabled
+      });
+
+      this.broadcastState();
+      return;
+    }
+
+
     if (packet.type === "start") {
       const members = this.members();
 
       if (members[0]?.ws !== ws) return;
+      
+      const playerCount =
+        members.length +
+        (members[0]?.data.comEnabled ? 1 : 0);
+
       if (
-        members.length !== 3 ||
+        playerCount !== 3 ||
         members.some(m => !m.data.ready)
       ) return;
+
 
       for (const member of members) {
         send(member.ws, {

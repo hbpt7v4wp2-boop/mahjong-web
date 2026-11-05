@@ -136,7 +136,8 @@
 <body>
 <main>
   <h1>麻雀 Web Game</h1>
-  <p class="subtitle">待機ルーム Version 0.4</p>
+  <p class="subtitle">待機ルーム Version 0.5</p>
+
 
   <section>
     <h2>ルームに参加</h2>
@@ -185,6 +186,11 @@
       <button id="ready" disabled>
         準備完了にする
       </button>
+      
+      <button id="com" disabled>
+        COMを追加
+      </button>
+
       <button id="start" disabled>
         対局開始テスト
       </button>
@@ -270,6 +276,24 @@
     $("ready").textContent = me?.ready
       ? "準備を取り消す"
       : "準備完了にする";
+      
+      
+    const hasCom = roomState.players.some(
+      p => p.com === true
+    );
+
+    const humanCount = roomState.players.filter(
+      p => !p.com
+    ).length;
+
+    $("com").disabled =
+      !joined ||
+      !me?.host ||
+      (!hasCom && humanCount !== 2);
+
+    $("com").textContent =
+      hasCom ? "COMを外す" : "COMを追加";
+
 
     const canStart =
       joined &&
@@ -488,6 +512,19 @@
       });
     }
   };
+
+
+  $("com").onclick = () => {
+    const hasCom = roomState.players.some(
+      p => p.com === true
+    );
+
+    send({
+      type: "com",
+      enabled: !hasCom
+    });
+  };
+
 
   $("start").onclick = () => {
     send({ type: "start" });
