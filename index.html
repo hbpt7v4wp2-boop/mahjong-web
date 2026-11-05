@@ -481,7 +481,11 @@
       joined &&
       me?.host &&
       roomState.players.length === 3 &&
-      roomState.players.every(p => p.ready);
+
+      roomState.players.every(
+        p => p.host || p.ready
+      );
+
 
 
     $("start").disabled =
@@ -673,7 +677,8 @@
       status("通信エラーが発生しました");
     };
 
-    current.onclose = () => {
+current.onclose = (event) => {
+
       if (socket !== current) return;
 
       connecting = false;
@@ -692,9 +697,14 @@
       renderGame();
       refreshUI();
 
-      status(
-        "切断されました（必要なら再参加できます）"
-      );
+      
+      const detail =
+        `code=${event.code}, ` +
+        `wasClean=${event.wasClean}`;
+
+      status("切断されました：" + detail);
+      log("通信診断：" + detail);
+
 
     };
   };
@@ -707,6 +717,12 @@
     const me = roomState.players.find(
       p => p.seat === roomState.selfSeat
     );
+    
+    
+    $("ready").hidden = !joined || !!me?.host;
+    $("com").hidden = !joined || !me?.host;
+    $("start").hidden = !joined || !me?.host;
+
 
     if (me) {
       send({

@@ -83,7 +83,8 @@ export class MahjongRoom extends DurableObject {
     const players = members.map(({ data }, index) => ({
       seat: index + 1,
       name: data.name,
-      ready: data.ready,
+ready: index === 0 || data.ready,
+
       host: index === 0
     }));
     
@@ -361,7 +362,11 @@ async webSocketMessage(ws, message) {
 
       if (
         members.length + (hasCom ? 1 : 0) !== 3 ||
-        members.some(m => !m.data.ready)
+
+        members.some((m, index) =>
+          index !== 0 && !m.data.ready
+        )
+
       ) return;
 
       if (game?.phase === "playing") return;
