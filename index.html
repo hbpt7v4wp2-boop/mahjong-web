@@ -173,7 +173,7 @@
 <body>
 <main>
   <h1>麻雀 Web Game</h1>
-  <p class="subtitle">待機ルーム Version 0.6</p>
+  <p class="subtitle">待機ルーム Version 0.6.1</p>
 
 
   <section>
@@ -447,6 +447,12 @@
     const me = roomState.players.find(
       p => p.seat === roomState.selfSeat
     );
+    
+    
+    $("ready").hidden = !joined || !!me?.host;
+    $("com").hidden = !joined || !me?.host;
+    $("start").hidden = !joined || !me?.host;
+
 
 
     $("ready").disabled =
@@ -719,9 +725,7 @@ current.onclose = (event) => {
     );
     
     
-    $("ready").hidden = !joined || !!me?.host;
-    $("com").hidden = !joined || !me?.host;
-    $("start").hidden = !joined || !me?.host;
+   
 
 
     if (me) {
