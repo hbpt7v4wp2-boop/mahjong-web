@@ -8,35 +8,46 @@
   <title>麻雀 Web Game</title>
 
   <style>
-    * {
-      box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
       margin: 0;
       min-height: 100dvh;
-      display: flex;
-      justify-content: center;
-      align-items: center;
       background: #173d30;
       color: white;
       font-family: sans-serif;
+      padding: 20px;
     }
 
     main {
+      max-width: 600px;
+      margin: auto;
+    }
+
+    h1, .subtitle { text-align: center; }
+
+    section {
+      background: #245441;
+      padding: 18px;
+      border-radius: 12px;
+      margin-top: 20px;
+    }
+
+    input, button {
+      font-size: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    input {
       width: 100%;
-      max-width: 500px;
-      padding: 24px;
-      text-align: center;
+      min-width: 0;
     }
 
     button {
-      padding: 14px 24px;
-      border: none;
-      border-radius: 10px;
       background: white;
       color: #173d30;
-      font-size: 16px;
       font-weight: bold;
       cursor: pointer;
     }
@@ -45,111 +56,262 @@
       opacity: 0.5;
     }
 
-    #status {
-      margin-top: 24px;
-      line-height: 1.8;
+    .row {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .row input { flex: 1; }
+    .row button { flex-shrink: 0; }
+
+    #roomCode {
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    #status { font-weight: bold; }
+
+    #log {
+      height: 180px;
+      overflow-y: auto;
+      background: #102c22;
+      border-radius: 8px;
+      padding: 12px;
       overflow-wrap: anywhere;
     }
+
+    .message {
+      margin-bottom: 10px;
+    }
+
+    a { color: #b9f5d1; }
   </style>
 </head>
 
 <body>
   <main>
     <h1>麻雀 Web Game</h1>
-    <p>通信テスト Version 0.2</p>
-
-    <button id="testButton">
-      通信テスト開始
-    </button>
-
-    <p id="status">
-      ボタンを押してください
+    <p class="subtitle">
+      通信テスト Version 0.3
     </p>
+
+    <section>
+      <h2>ルーム接続</h2>
+
+      <label for="roomCode">部屋コード</label>
+
+      <div class="row">
+        <input
+          id="roomCode"
+          maxlength="6"
+          placeholder="ABC123"
+          autocapitalize="characters"
+        >
+        <button id="makeCode">
+          自動作成
+        </button>
+      </div>
+
+      <div class="row">
+        <button id="connect">接続する</button>
+        <button id="disconnect" disabled>
+          切断
+        </button>
+      </div>
+
+      <p id="inviteWrap" hidden>
+        招待用：
+        <a id="invite">ルームリンク</a>
+      </p>
+
+      <p id="status">未接続</p>
+    </section>
+
+    <section>
+      <h2>メッセージテスト</h2>
+
+      <div id="log" aria-live="polite"></div>
+
+      <form id="sendForm" class="row">
+        <input
+          id="message"
+          maxlength="100"
+          placeholder="メッセージを入力"
+          disabled
+        >
+        <button id="send" type="submit" disabled>
+          送信
+        </button>
+      </form>
+    </section>
   </main>
 
   <script>
-    const SERVER_URL =
+    const SERVER =
       "wss://mahjong-realtime-test.hbpt7v4wp2.workers.dev";
 
-    const button =
-      document.getElementById("testButton");
+    const $ = id => document.getElementById(id);
+    let socket = null;
 
-    const status =
-      document.getElementById("status");
+    function setStatus(text) {
+      $("status").textContent = text;
+    }
 
-    button.addEventListener("click", () => {
-      button.disabled = true;
-      status.style.color = "white";
-      status.textContent = "サーバーに接続中...";
+    function addLog(text) {
+      const item = document.createElement("div");
+      item.className = "message";
+      item.textContent = text;
+      $("log").appendChild(item);
+      $("log").scrollTop = $("log").scrollHeight;
+    }
 
-      let socket;
-      let finished = false;
-      let timeoutId;
+    function setConnected(connected) {
+      $("roomCode").disabled = connected;
+      $("makeCode").disabled = connected;
+      $("connect").disabled = connected;
+      $("disconnect").disabled = !connected;
+      $("message").disabled = !connected;
+      $("send").disabled = !connected;
+    }
 
-      function finish(success, message) {
-        if (finished) return;
+    function getRoomCode() {
+      return $("roomCode").value
+        .trim()
+        .toUpperCase();
+    }
 
-        finished = true;
-        clearTimeout(timeoutId);
+    function updateInvite() {
+      const code = getRoomCode();
 
-        status.textContent = message;
-        status.style.color =
-          success ? "#90f0b1" : "#ffb0b0";
-
-        button.disabled = false;
-
-        if (socket) {
-          socket.close();
-        }
-      }
-
-      try {
-        socket = new WebSocket(SERVER_URL);
-      } catch (error) {
-        finish(false, "接続を開始できませんでした");
+      if (!/^[A-Z0-9]{6}$/.test(code)) {
+        $("inviteWrap").hidden = true;
         return;
       }
 
-      timeoutId = setTimeout(() => {
-        finish(false, "通信がタイムアウトしました");
-      }, 8000);
+      const url = new URL(location.href);
+      url.searchParams.set("room", code);
+
+      $("invite").href = url.href;
+      $("invite").textContent = url.href;
+      $("inviteWrap").hidden = false;
+    }
+
+    $("makeCode").addEventListener("click", () => {
+      const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+      const bytes = new Uint8Array(6);
+
+      crypto.getRandomValues(bytes);
+
+      $("roomCode").value =
+        Array.from(bytes, value =>
+          chars[value % chars.length]
+        ).join("");
+
+      updateInvite();
+    });
+
+    $("roomCode").addEventListener(
+      "input", updateInvite
+    );
+
+    const preset =
+      new URLSearchParams(location.search)
+        .get("room");
+
+    if (preset) {
+      $("roomCode").value =
+        preset.toUpperCase().slice(0, 6);
+    }
+
+    updateInvite();
+
+    $("connect").addEventListener("click", () => {
+      const code = getRoomCode();
+
+      if (!/^[A-Z0-9]{6}$/.test(code)) {
+        setStatus("6文字の部屋コードを入力してください");
+        return;
+      }
+
+      setStatus("接続中...");
+      setConnected(true);
+      $("log").textContent = "";
+
+      let opened = false;
+
+      try {
+        socket = new WebSocket(
+          SERVER + "/room/" + code
+        );
+      } catch {
+        setConnected(false);
+        setStatus("接続を開始できませんでした");
+        return;
+      }
 
       socket.addEventListener("open", () => {
-        status.textContent =
-          "接続成功！メッセージを送信中...";
-
-        socket.send("mahjong-test-001");
+        opened = true;
+        setStatus("接続成功！");
+        addLog("ルーム " + code + " に接続しました");
       });
 
-      socket.addEventListener("message", (event) => {
-        if (event.data === "Echo: mahjong-test-001") {
-          finish(
-            true,
-            "通信成功！サーバーから返信を受信しました。"
-          );
-        } else {
-          finish(
-            false,
-            "想定外の返信: " + String(event.data)
-          );
+      socket.addEventListener("message", event => {
+        let data;
+
+        try {
+          data = JSON.parse(event.data);
+        } catch {
+          return;
         }
-      });
 
-      socket.addEventListener("error", () => {
-        finish(
-          false,
-          "通信エラーが発生しました"
-        );
+        if (data.type === "joined") {
+          addLog("サーバーへの参加が完了しました");
+        }
+
+        if (
+          data.type === "chat" &&
+          typeof data.text === "string"
+        ) {
+          addLog(data.text);
+        }
       });
 
       socket.addEventListener("close", () => {
-        if (!finished) {
-          finish(
-            false,
-            "通信が途中で切断されました"
-          );
-        }
+        setConnected(false);
+        setStatus(
+          opened
+            ? "接続が切断されました"
+            : "接続失敗（通信・満員・設定を確認）"
+        );
+        socket = null;
       });
+
+      socket.addEventListener("error", () => {
+        setStatus("WebSocket通信エラー");
+      });
+    });
+
+    $("disconnect").addEventListener("click", () => {
+      if (socket) socket.close();
+    });
+
+    $("sendForm").addEventListener("submit", event => {
+      event.preventDefault();
+
+      const text = $("message").value.trim();
+
+      if (!text || !socket ||
+          socket.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      socket.send(JSON.stringify({
+        type: "chat",
+        text: text
+      }));
+
+      $("message").value = "";
     });
   </script>
 </body>
